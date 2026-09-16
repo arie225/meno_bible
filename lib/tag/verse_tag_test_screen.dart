@@ -16,6 +16,109 @@ class VerseTagTestScreen extends ConsumerStatefulWidget {
 class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
   final _controller = TextEditingController();
 
+  Future<void> _handleEnterPressed(String textSnapshot, int cursorOffset) async {
+    final tagState = ref.read(verseTagProvider);
+    final refData = ref.read(bibleReferenceDataProvider).value;
+    if (refData == null) return;
+
+    final bookId = tagState.selectedBookId;
+    if (bookId == null) {
+      _showRejection('Sélectionne un livre avant de valider.');
+      return;
+    }
+    final bookName = refData.bookNameById[bookId]!;
+    final db = await ref.read(bibleDatabaseProvider.future);
+
+    String reference;
+    String content;
+
+    switch (tagState.state) {
+      case TagState.searchingBook:
+        _showRejection('Sélectionne un livre avant de valider.');
+        return;
+
+      case TagState.editingChapter:
+        final start = tagState.segmentStartOffset;
+        if (start < 0 || start > cursorOffset) {
+          _showRejection('Indique un numéro de chapitre.');
+          return;
+        }
+        final digits = textSnapshot.substring(start, cursorOffset).replaceAll(' ', '');
+        final chapter = int.tryParse(digits);
+        if (chapter == null || chapter < 1) {
+          _showRejection('Indique un numéro de chapitre valide.');
+          return;
+        }
+        final rows = await db.query(
+          'bible_verses',
+          where: 'book_id = ? AND chapter = ?',
+          whereArgs: [bookId, chapter],
+          orderBy: 'verse ASC',
+        );
+        reference = '$bookName $chapter';
+        content = rows.map((r) => '[${r['verse']}] ${r['text']}').join(' ');
+        break;
+
+      case TagState.editingVerseStart:
+        final chapter = tagState.chapterNumber;
+        final verseStart = tagState.verseStartNumber;
+        if (chapter == null || verseStart == null) {
+          _showRejection('Indique un numéro de verset.');
+          return;
+        }
+        final rows = await db.query(
+          'bible_verses',
+          where: 'book_id = ? AND chapter = ? AND verse = ?',
+          whereArgs: [bookId, chapter, verseStart],
+        );
+        if (rows.isEmpty) {
+          _showRejection('Verset introuvable.');
+          return;
+        }
+        reference = '$bookName $chapter:$verseStart';
+        content = rows.first['text'] as String;
+        break;
+
+      case TagState.editingVerseEnd:
+        final chapter = tagState.chapterNumber;
+        final verseStart = tagState.verseStartNumber;
+        final verseEnd = tagState.verseEndNumber;
+        if (chapter == null || verseStart == null || verseEnd == null) {
+          _showRejection('Indique un numéro de verset de fin.');
+          return;
+        }
+        if (verseEnd <= verseStart) {
+          _showRejection('Le verset de fin doit être supérieur à $verseStart.');
+          return;
+        }
+        final rows = await db.query(
+          'bible_verses',
+          where: 'book_id = ? AND chapter = ? AND verse >= ? AND verse <= ?',
+          whereArgs: [bookId, chapter, verseStart, verseEnd],
+          orderBy: 'verse ASC',
+        );
+        reference = '$bookName $chapter:$verseStart-$verseEnd';
+        content = rows.map((r) => '[${r['verse']}] ${r['text']}').join(' ');
+        break;
+
+      case TagState.idle:
+        return;
+    }
+
+    final citation = '*$reference $content*';
+    final before = textSnapshot.substring(0, tagState.tagStartOffset);
+    final after = cursorOffset <= textSnapshot.length ? textSnapshot.substring(cursorOffset) : '';
+    final newText = '$before$citation $after';
+    final newCursorPos = before.length + citation.length + 1;
+
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursorPos),
+    );
+
+    ref.read(verseTagProvider.notifier).cancel();
+  }
+
   void _onBookSelected(int bookId, String bookName) {
     final tagState = ref.read(verseTagProvider);
     final offset = tagState.tagStartOffset;
@@ -76,6 +179,7 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
                   onVerseStartChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseStart(v),
                   onVerseEndStarted: (o) => ref.read(verseTagProvider.notifier).confirmVerseEndStart(o),
                   onVerseEndChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseEnd(v),
+                  onEnterPressed: (text, cursor) => _handleEnterPressed(text, cursor),
                   getState: () => ref.read(verseTagProvider),
                   getRefData: () => refDataAsync.value,
                 ),

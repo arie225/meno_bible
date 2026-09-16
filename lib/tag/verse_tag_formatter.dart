@@ -4,6 +4,7 @@ import 'verse_tag_state.dart';
 
 class VerseTagFormatter extends TextInputFormatter {
   final void Function(int offset) onTagStart;
+  final void Function(String textSnapshot, int cursorOffset) onEnterPressed;
   final void Function(String query) onQueryChanged;
   final void Function(int chapterNumber, int verseStartOffset) onChapterConfirmed;
   final void Function(int? verseNumber) onVerseStartChanged;
@@ -25,11 +26,26 @@ class VerseTagFormatter extends TextInputFormatter {
     required this.onRejected,
     required this.getState,
     required this.getRefData,
+    required this.onEnterPressed
+
   });
 
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+
     final state = getState();
+
+    if (state.isActive) {
+      final isSingleCharInsertion = newValue.text.length == oldValue.text.length + 1;
+      if (isSingleCharInsertion) {
+        final cursorPos = newValue.selection.baseOffset;
+        final insertedIndex = cursorPos - 1;
+        if (insertedIndex >= 0 && newValue.text[insertedIndex] == '\n') {
+          onEnterPressed(oldValue.text, oldValue.selection.baseOffset);
+          return oldValue; // bloque toujours le saut de ligne pendant un tag actif
+        }
+      }
+    }
 
     if (state.state == TagState.searchingBook) {
       return _handleSearchingBook(state, newValue);
