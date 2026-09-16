@@ -32,7 +32,13 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
       selection: TextSelection.collapsed(offset: newCursorPos),
     );
 
-    ref.read(verseTagProvider.notifier).selectBook();
+    ref.read(verseTagProvider.notifier).selectBook(bookId, newCursorPos);
+  }
+
+  void _showRejection(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
   }
 
   @override
@@ -41,14 +47,16 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
     final refDataAsync = ref.watch(bibleReferenceDataProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Test — sélection du livre')),
+      appBar: AppBar(title: const Text('Test — chapitre')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'État: ${tagState.state}\nRecherche: "${tagState.bookQuery}"',
+              'État: ${tagState.state}\n'
+                  'Livre id: ${tagState.selectedBookId}\n'
+                  'Chapitre confirmé: ${tagState.chapterNumber}',
               style: const TextStyle(fontFamily: 'monospace'),
             ),
             const SizedBox(height: 12),
@@ -59,13 +67,16 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
                 VerseTagFormatter(
                   onTagStart: (o) => ref.read(verseTagProvider.notifier).startTag(o),
                   onQueryChanged: (q) => ref.read(verseTagProvider.notifier).updateQuery(q),
+                  onChapterConfirmed: (ch, off) =>
+                      ref.read(verseTagProvider.notifier).confirmChapter(ch, off),
                   onCancel: () => ref.read(verseTagProvider.notifier).cancel(),
-                  isTagActive: () => ref.read(verseTagProvider).isActive,
-                  getTagStartOffset: () => ref.read(verseTagProvider).tagStartOffset,
+                  onRejected: _showRejection,
+                  getState: () => ref.read(verseTagProvider),
+                  getRefData: () => refDataAsync.value,
                 ),
               ],
               decoration: const InputDecoration(
-                hintText: 'Tape "@" puis un nom de livre',
+                hintText: 'Tape "@", choisis un livre, puis un chapitre',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -74,12 +85,6 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
               refDataAsync.when(
                 data: (refData) {
                   final ids = refData.filterBooks(tagState.bookQuery);
-                  if (ids.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text('Aucun livre trouvé', style: TextStyle(color: AppColors.grisDoux)),
-                    );
-                  }
                   return Container(
                     constraints: const BoxConstraints(maxHeight: 220),
                     decoration: BoxDecoration(
@@ -100,10 +105,7 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
                     ),
                   );
                 },
-                loading: () => const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: CircularProgressIndicator(),
-                ),
+                loading: () => const CircularProgressIndicator(),
                 error: (e, _) => Text('Erreur: $e'),
               ),
             const SizedBox(height: 12),

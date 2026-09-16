@@ -10,13 +10,27 @@ class VerseTagNotifier extends Notifier<VerseTagState> {
   }
 
   void updateQuery(String query) {
-    if (state.state != TagState.searchingBook) return; // ignore hors de cette étape
+    if (state.state != TagState.searchingBook) return;
     state = state.copyWith(bookQuery: query);
   }
 
-  void selectBook() {
-    state = state.copyWith(state: TagState.editingChapter, bookQuery: '');
+  void selectBook(int bookId, int chapterStartOffset) {
+    state = state.copyWith(
+      state: TagState.editingChapter,
+      selectedBookId: bookId,
+      bookQuery: '',
+      segmentStartOffset: chapterStartOffset,
+    );
   }
+
+  void confirmChapter(int chapterNumber, int verseStartOffset) {
+    state = state.copyWith(
+      state: TagState.editingVerseStart,
+      chapterNumber: chapterNumber,
+      segmentStartOffset: verseStartOffset,
+    );
+  }
+
   void cancel() {
     state = const VerseTagState();
   }
