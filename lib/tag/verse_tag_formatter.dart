@@ -11,6 +11,8 @@ class VerseTagFormatter extends TextInputFormatter {
   final void Function(int offset) onVerseEndStarted;
   final void Function(int? verseNumber) onVerseEndChanged;
   final void Function() onCancel;
+  final void Function() onRevertToChapter;
+  final void Function() onRevertToVerseStart;
   final void Function(String message) onRejected;
   final VerseTagState Function() getState;
   final BibleReferenceData? Function() getRefData;
@@ -23,16 +25,16 @@ class VerseTagFormatter extends TextInputFormatter {
     required this.onVerseEndStarted,
     required this.onVerseEndChanged,
     required this.onCancel,
+    required this.onRevertToChapter,
+    required this.onRevertToVerseStart,
     required this.onRejected,
     required this.getState,
     required this.getRefData,
-    required this.onEnterPressed
-
+    required this.onEnterPressed,
   });
 
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-
     final state = getState();
 
     if (state.isActive) {
@@ -42,13 +44,13 @@ class VerseTagFormatter extends TextInputFormatter {
         final insertedIndex = cursorPos - 1;
         if (insertedIndex >= 0 && newValue.text[insertedIndex] == '\n') {
           onEnterPressed(oldValue.text, oldValue.selection.baseOffset);
-          return oldValue; // bloque toujours le saut de ligne pendant un tag actif
+          return oldValue;
         }
       }
     }
 
     if (state.state == TagState.searchingBook) {
-      return _handleSearchingBook(state, newValue);
+      return _handleSearchingBook(state, oldValue, newValue);
     }
     if (state.state == TagState.editingChapter) {
       return _handleEditingChapter(state, oldValue, newValue);
@@ -58,9 +60,6 @@ class VerseTagFormatter extends TextInputFormatter {
     }
     if (state.state == TagState.editingVerseEnd) {
       return _handleEditingVerseEnd(state, oldValue, newValue);
-    }
-    if (state.isActive) {
-      return newValue;
     }
     return _handleIdle(oldValue, newValue);
   }
@@ -80,17 +79,30 @@ class VerseTagFormatter extends TextInputFormatter {
     return newValue;
   }
 
-  TextEditingValue _handleSearchingBook(VerseTagState state, TextEditingValue newValue) {
+  TextEditingValue _handleSearchingBook(
+      VerseTagState state,
+      TextEditingValue oldValue,
+      TextEditingValue newValue,
+      ) {
     final offset = state.tagStartOffset;
     final text = newValue.text;
     final cursor = newValue.selection.baseOffset;
+
     final broken = offset < 0 || offset >= text.length || text[offset] != '@' ||
         cursor < 0 || cursor <= offset;
     if (broken) {
       onCancel();
-    } else {
-      onQueryChanged(text.substring(offset + 1, cursor));
+      return newValue;
     }
+
+    // Blocage du collage : plus d'un caractère ajouté d'un coup pendant la recherche.
+    final isGrowth = newValue.text.length > oldValue.text.length;
+    if (isGrowth && newValue.text.length - oldValue.text.length > 1) {
+      onRejected('Le collage n\'est pas autorisé ici.');
+      return oldValue;
+    }
+
+    onQueryChanged(text.substring(offset + 1, cursor));
     return newValue;
   }
 
@@ -103,7 +115,18 @@ class VerseTagFormatter extends TextInputFormatter {
     final bookId = state.selectedBookId;
     if (refData == null || bookId == null) return newValue;
 
-    if (newValue.text.length < oldValue.text.length) return newValue;
+    final start = state.chapterSegmentStart;
+
+    if (newValue.text.length < oldValue.text.length) {
+      final cursor = newValue.selection.baseOffset;
+      if (cursor < start) {
+        // Effacement remonté jusque dans le nom du livre : on annule tout le
+        // tag plutôt que de tenter un retour vers la recherche de livre —
+        // simplification assumée, pas encore de "retour" jusqu'à cette étape.
+        onCancel();
+      }
+      return newValue;
+    }
 
     final isSingleCharInsertion = newValue.text.length == oldValue.text.length + 1;
     if (!isSingleCharInsertion) {
@@ -113,7 +136,6 @@ class VerseTagFormatter extends TextInputFormatter {
 
     final cursor = newValue.selection.baseOffset;
     final insertedChar = newValue.text[cursor - 1];
-    final start = state.segmentStartOffset;
     if (start < 0 || start > newValue.text.length) return newValue;
 
     final rawSuffix = newValue.text.substring(start, cursor);
@@ -161,17 +183,23 @@ class VerseTagFormatter extends TextInputFormatter {
     final refData = getRefData();
     final bookId = state.selectedBookId;
     final chapter = state.chapterNumber;
-    if (refData == null || bookId == null || chapter == null) return newValue;
+    final start = state.verseStartSegmentStart;
+    if (refData == null || bookId == null || chapter == null || start == null) return newValue;
 
     if (newValue.text.length < oldValue.text.length) {
-      final start = state.segmentStartOffset;
       final cursor = newValue.selection.baseOffset;
-      if (start >= 0 && cursor >= start && cursor <= newValue.text.length) {
-        final remaining = newValue.text.substring(start, cursor).replaceAll(' ', '');
-        onVerseStartChanged(int.tryParse(remaining));
-      } else {
-        onVerseStartChanged(null);
+      final colonPos = start - 1;
+      final colonStillThere = colonPos >= 0 &&
+          colonPos < newValue.text.length &&
+          newValue.text[colonPos] == ':';
+
+      if (!colonStillThere || cursor <= colonPos) {
+        onRevertToChapter();
+        return newValue;
       }
+
+      final remaining = newValue.text.substring(start, cursor).replaceAll(' ', '');
+      onVerseStartChanged(remaining.isEmpty ? null : int.tryParse(remaining));
       return newValue;
     }
 
@@ -183,7 +211,6 @@ class VerseTagFormatter extends TextInputFormatter {
 
     final cursor = newValue.selection.baseOffset;
     final insertedChar = newValue.text[cursor - 1];
-    final start = state.segmentStartOffset;
     if (start < 0 || start > newValue.text.length) return newValue;
 
     final rawSuffix = newValue.text.substring(start, cursor);
@@ -231,19 +258,25 @@ class VerseTagFormatter extends TextInputFormatter {
     final bookId = state.selectedBookId;
     final chapter = state.chapterNumber;
     final verseStart = state.verseStartNumber;
-    if (refData == null || bookId == null || chapter == null || verseStart == null) {
+    final start = state.verseEndSegmentStart;
+    if (refData == null || bookId == null || chapter == null || verseStart == null || start == null) {
       return newValue;
     }
 
     if (newValue.text.length < oldValue.text.length) {
-      final start = state.segmentStartOffset;
       final cursor = newValue.selection.baseOffset;
-      if (cursor >= start && cursor <= newValue.text.length) {
-        final remaining = newValue.text.substring(start, cursor).replaceAll(' ', '');
-        onVerseEndChanged(int.tryParse(remaining));
-      } else {
-        onVerseEndChanged(null);
+      final dashPos = start - 1;
+      final dashStillThere = dashPos >= 0 &&
+          dashPos < newValue.text.length &&
+          newValue.text[dashPos] == '-';
+
+      if (!dashStillThere || cursor <= dashPos) {
+        onRevertToVerseStart();
+        return newValue;
       }
+
+      final remaining = newValue.text.substring(start, cursor).replaceAll(' ', '');
+      onVerseEndChanged(remaining.isEmpty ? null : int.tryParse(remaining));
       return newValue;
     }
 
@@ -255,7 +288,6 @@ class VerseTagFormatter extends TextInputFormatter {
 
     final cursor = newValue.selection.baseOffset;
     final insertedChar = newValue.text[cursor - 1];
-    final start = state.segmentStartOffset;
     if (start < 0 || start > newValue.text.length) return newValue;
 
     final rawSuffix = newValue.text.substring(start, cursor);
@@ -280,9 +312,6 @@ class VerseTagFormatter extends TextInputFormatter {
       onRejected('Ce chapitre n\'a que $maxVerse verset(s).');
       return oldValue;
     }
-// La comparaison "doit être supérieur à $verseStart" est reportée à la
-// validation finale (étape 6) : elle ne peut pas se vérifier chiffre par
-// chiffre sans terminateur explicite, contrairement au maximum ci-dessus.
 
     onVerseEndChanged(candidateEnd);
     return newValue;

@@ -15,6 +15,26 @@ class VerseTagTestScreen extends ConsumerStatefulWidget {
 
 class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
   final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus) {
+        final tagState = ref.read(verseTagProvider);
+        if (tagState.isActive) {
+          ref.read(verseTagProvider.notifier).cancel();
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   Future<void> _handleEnterPressed(String textSnapshot, int cursorOffset) async {
     final tagState = ref.read(verseTagProvider);
@@ -38,7 +58,7 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
         return;
 
       case TagState.editingChapter:
-        final start = tagState.segmentStartOffset;
+        final start = tagState.chapterSegmentStart;
         if (start < 0 || start > cursorOffset) {
           _showRejection('Indique un numéro de chapitre.');
           return;
@@ -149,83 +169,90 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
     final tagState = ref.watch(verseTagProvider);
     final refDataAsync = ref.watch(bibleReferenceDataProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Test — chapitre')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'État: ${tagState.state}\n'
-                  'Livre id: ${tagState.selectedBookId}\n'
-                  'Chapitre confirmé: ${tagState.chapterNumber}\n'
-                  'Verset de début: ${tagState.verseStartNumber}\n'
-                  'Verset de fin: ${tagState.verseEndNumber}',
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _controller,
-              maxLines: 5,
-              inputFormatters: [
-                VerseTagFormatter(
-                  onTagStart: (o) => ref.read(verseTagProvider.notifier).startTag(o),
-                  onQueryChanged: (q) => ref.read(verseTagProvider.notifier).updateQuery(q),
-                  onChapterConfirmed: (ch, off) =>
-                      ref.read(verseTagProvider.notifier).confirmChapter(ch, off),
-                  onCancel: () => ref.read(verseTagProvider.notifier).cancel(),
-                  onRejected: _showRejection,
-                  onVerseStartChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseStart(v),
-                  onVerseEndStarted: (o) => ref.read(verseTagProvider.notifier).confirmVerseEndStart(o),
-                  onVerseEndChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseEnd(v),
-                  onEnterPressed: (text, cursor) => _handleEnterPressed(text, cursor),
-                  getState: () => ref.read(verseTagProvider),
-                  getRefData: () => refDataAsync.value,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Test — chapitre')),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'État: ${tagState.state}\n'
+                    'Livre id: ${tagState.selectedBookId}\n'
+                    'Chapitre confirmé: ${tagState.chapterNumber}\n'
+                    'Verset de début: ${tagState.verseStartNumber}\n'
+                    'Verset de fin: ${tagState.verseEndNumber}',
+                style: const TextStyle(fontFamily: 'monospace'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                maxLines: 5,
+                inputFormatters: [
+                  VerseTagFormatter(
+                    onTagStart: (o) => ref.read(verseTagProvider.notifier).startTag(o),
+                    onQueryChanged: (q) => ref.read(verseTagProvider.notifier).updateQuery(q),
+                    onChapterConfirmed: (ch, off) =>
+                        ref.read(verseTagProvider.notifier).confirmChapter(ch, off),
+                    onCancel: () => ref.read(verseTagProvider.notifier).cancel(),
+                    onRejected: _showRejection,
+                    onVerseStartChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseStart(v),
+                    onVerseEndStarted: (o) => ref.read(verseTagProvider.notifier).confirmVerseEndStart(o),
+                    onVerseEndChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseEnd(v),
+                    onEnterPressed: (text, cursor) => _handleEnterPressed(text, cursor),
+                    onRevertToChapter: () => ref.read(verseTagProvider.notifier).revertToEditingChapter(),
+                    onRevertToVerseStart: () => ref.read(verseTagProvider.notifier).revertToEditingVerseStart(),
+                    getState: () => ref.read(verseTagProvider),
+                    getRefData: () => refDataAsync.value,
+                  ),
+                ],
+                decoration: const InputDecoration(
+                  hintText: 'Tape "@", choisis un livre, puis un chapitre',
+                  border: OutlineInputBorder(),
                 ),
-              ],
-              decoration: const InputDecoration(
-                hintText: 'Tape "@", choisis un livre, puis un chapitre',
-                border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 8),
-            if (tagState.state == TagState.searchingBook)
-              refDataAsync.when(
-                data: (refData) {
-                  final ids = refData.filterBooks(tagState.bookQuery);
-                  return Container(
-                    constraints: const BoxConstraints(maxHeight: 220),
-                    decoration: BoxDecoration(
-                      color: AppColors.bleuCielDoux,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: ids.length,
-                      itemBuilder: (context, index) {
-                        final id = ids[index];
-                        final name = refData.bookNameById[id]!;
-                        return ListTile(
-                          title: Text(name, style: const TextStyle(color: AppColors.bordeauxProfond)),
-                          onTap: () => _onBookSelected(id, name),
-                        );
-                      },
-                    ),
-                  );
+              const SizedBox(height: 8),
+              if (tagState.state == TagState.searchingBook)
+                refDataAsync.when(
+                  data: (refData) {
+                    final ids = refData.filterBooks(tagState.bookQuery);
+                    return Container(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      decoration: BoxDecoration(
+                        color: AppColors.bleuCielDoux,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: ids.length,
+                        itemBuilder: (context, index) {
+                          final id = ids[index];
+                          final name = refData.bookNameById[id]!;
+                          return ListTile(
+                            title: Text(name, style: const TextStyle(color: AppColors.bordeauxProfond)),
+                            onTap: () => _onBookSelected(id, name),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                  loading: () => const CircularProgressIndicator(),
+                  error: (e, _) => Text('Erreur: $e'),
+                ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  _controller.clear();
+                  ref.read(verseTagProvider.notifier).cancel();
                 },
-                loading: () => const CircularProgressIndicator(),
-                error: (e, _) => Text('Erreur: $e'),
+                child: const Text('Réinitialiser (debug)'),
               ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () {
-                _controller.clear();
-                ref.read(verseTagProvider.notifier).cancel();
-              },
-              child: const Text('Réinitialiser (debug)'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
