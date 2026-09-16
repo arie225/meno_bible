@@ -6,6 +6,9 @@ class VerseTagFormatter extends TextInputFormatter {
   final void Function(int offset) onTagStart;
   final void Function(String query) onQueryChanged;
   final void Function(int chapterNumber, int verseStartOffset) onChapterConfirmed;
+  final void Function(int? verseNumber) onVerseStartChanged;
+  final void Function(int offset) onVerseEndStarted;
+  final void Function(int? verseNumber) onVerseEndChanged;
   final void Function() onCancel;
   final void Function(String message) onRejected;
   final VerseTagState Function() getState;
@@ -15,6 +18,9 @@ class VerseTagFormatter extends TextInputFormatter {
     required this.onTagStart,
     required this.onQueryChanged,
     required this.onChapterConfirmed,
+    required this.onVerseStartChanged,
+    required this.onVerseEndStarted,
+    required this.onVerseEndChanged,
     required this.onCancel,
     required this.onRejected,
     required this.getState,
@@ -31,8 +37,14 @@ class VerseTagFormatter extends TextInputFormatter {
     if (state.state == TagState.editingChapter) {
       return _handleEditingChapter(state, oldValue, newValue);
     }
+    if (state.state == TagState.editingVerseStart) {
+      return _handleEditingVerseStart(state, oldValue, newValue);
+    }
+    if (state.state == TagState.editingVerseEnd) {
+      return _handleEditingVerseEnd(state, oldValue, newValue);
+    }
     if (state.isActive) {
-      return newValue; // étapes verset/plage pas encore codées
+      return newValue;
     }
     return _handleIdle(oldValue, newValue);
   }
@@ -56,10 +68,8 @@ class VerseTagFormatter extends TextInputFormatter {
     final offset = state.tagStartOffset;
     final text = newValue.text;
     final cursor = newValue.selection.baseOffset;
-
     final broken = offset < 0 || offset >= text.length || text[offset] != '@' ||
         cursor < 0 || cursor <= offset;
-
     if (broken) {
       onCancel();
     } else {
@@ -77,9 +87,7 @@ class VerseTagFormatter extends TextInputFormatter {
     final bookId = state.selectedBookId;
     if (refData == null || bookId == null) return newValue;
 
-    if (newValue.text.length < oldValue.text.length) {
-      return newValue; // suppression : toujours autorisée, pas de blocage
-    }
+    if (newValue.text.length < oldValue.text.length) return newValue;
 
     final isSingleCharInsertion = newValue.text.length == oldValue.text.length + 1;
     if (!isSingleCharInsertion) {
@@ -94,14 +102,11 @@ class VerseTagFormatter extends TextInputFormatter {
 
     final rawSuffix = newValue.text.substring(start, cursor);
 
-    if (insertedChar == ' ') {
-      return newValue; // espace toléré autour du ":"
-    }
+    if (insertedChar == ' ') return newValue;
 
     if (insertedChar == ':') {
       final digitsBeforeColon = rawSuffix.substring(0, rawSuffix.length - 1).replaceAll(' ', '');
       final chapterNumber = int.tryParse(digitsBeforeColon);
-
       if (chapterNumber == null || chapterNumber < 1) {
         onRejected('Indique un numéro de chapitre valide avant ":".');
         return oldValue;
@@ -129,6 +134,141 @@ class VerseTagFormatter extends TextInputFormatter {
       return oldValue;
     }
 
+    return newValue;
+  }
+
+  TextEditingValue _handleEditingVerseStart(
+      VerseTagState state,
+      TextEditingValue oldValue,
+      TextEditingValue newValue,
+      ) {
+    final refData = getRefData();
+    final bookId = state.selectedBookId;
+    final chapter = state.chapterNumber;
+    if (refData == null || bookId == null || chapter == null) return newValue;
+
+    if (newValue.text.length < oldValue.text.length) {
+      final start = state.segmentStartOffset;
+      final cursor = newValue.selection.baseOffset;
+      if (start >= 0 && cursor >= start && cursor <= newValue.text.length) {
+        final remaining = newValue.text.substring(start, cursor).replaceAll(' ', '');
+        onVerseStartChanged(int.tryParse(remaining));
+      } else {
+        onVerseStartChanged(null);
+      }
+      return newValue;
+    }
+
+    final isSingleCharInsertion = newValue.text.length == oldValue.text.length + 1;
+    if (!isSingleCharInsertion) {
+      onRejected('Le collage n\'est pas autorisé ici.');
+      return oldValue;
+    }
+
+    final cursor = newValue.selection.baseOffset;
+    final insertedChar = newValue.text[cursor - 1];
+    final start = state.segmentStartOffset;
+    if (start < 0 || start > newValue.text.length) return newValue;
+
+    final rawSuffix = newValue.text.substring(start, cursor);
+
+    if (insertedChar == ' ') return newValue;
+
+    if (insertedChar == '-') {
+      if (state.verseStartNumber == null) {
+        onRejected('Indique d\'abord un verset de début valide.');
+        return oldValue;
+      }
+      onVerseEndStarted(cursor);
+      return newValue;
+    }
+
+    final isDigit = RegExp(r'^[0-9]$').hasMatch(insertedChar);
+    if (!isDigit) {
+      onRejected('Seuls des chiffres sont attendus ici.');
+      return oldValue;
+    }
+
+    final digitsOnly = rawSuffix.replaceAll(' ', '');
+    final candidateVerse = int.tryParse(digitsOnly);
+    final maxVerse = refData.verseCount(bookId, chapter);
+
+    if (candidateVerse == null || candidateVerse == 0) {
+      onRejected('Le verset doit commencer par un chiffre autre que 0.');
+      return oldValue;
+    }
+    if (maxVerse == null || candidateVerse > maxVerse) {
+      onRejected('Ce chapitre n\'a que $maxVerse verset(s).');
+      return oldValue;
+    }
+
+    onVerseStartChanged(candidateVerse);
+    return newValue;
+  }
+
+  TextEditingValue _handleEditingVerseEnd(
+      VerseTagState state,
+      TextEditingValue oldValue,
+      TextEditingValue newValue,
+      ) {
+    final refData = getRefData();
+    final bookId = state.selectedBookId;
+    final chapter = state.chapterNumber;
+    final verseStart = state.verseStartNumber;
+    if (refData == null || bookId == null || chapter == null || verseStart == null) {
+      return newValue;
+    }
+
+    if (newValue.text.length < oldValue.text.length) {
+      final start = state.segmentStartOffset;
+      final cursor = newValue.selection.baseOffset;
+      if (cursor >= start && cursor <= newValue.text.length) {
+        final remaining = newValue.text.substring(start, cursor).replaceAll(' ', '');
+        onVerseEndChanged(int.tryParse(remaining));
+      } else {
+        onVerseEndChanged(null);
+      }
+      return newValue;
+    }
+
+    final isSingleCharInsertion = newValue.text.length == oldValue.text.length + 1;
+    if (!isSingleCharInsertion) {
+      onRejected('Le collage n\'est pas autorisé ici.');
+      return oldValue;
+    }
+
+    final cursor = newValue.selection.baseOffset;
+    final insertedChar = newValue.text[cursor - 1];
+    final start = state.segmentStartOffset;
+    if (start < 0 || start > newValue.text.length) return newValue;
+
+    final rawSuffix = newValue.text.substring(start, cursor);
+
+    if (insertedChar == ' ') return newValue;
+
+    final isDigit = RegExp(r'^[0-9]$').hasMatch(insertedChar);
+    if (!isDigit) {
+      onRejected('Seuls des chiffres sont attendus ici.');
+      return oldValue;
+    }
+
+    final digitsOnly = rawSuffix.replaceAll(' ', '');
+    final candidateEnd = int.tryParse(digitsOnly);
+    final maxVerse = refData.verseCount(bookId, chapter);
+
+    if (candidateEnd == null || candidateEnd == 0) {
+      onRejected('Le verset de fin doit commencer par un chiffre autre que 0.');
+      return oldValue;
+    }
+    if (maxVerse == null || candidateEnd > maxVerse) {
+      onRejected('Ce chapitre n\'a que $maxVerse verset(s).');
+      return oldValue;
+    }
+// La comparaison "doit être supérieur à $verseStart" est reportée à la
+// validation finale (étape 6) : elle ne peut pas se vérifier chiffre par
+// chiffre sans terminateur explicite, contrairement au maximum ci-dessus.
+
+    onVerseEndChanged(candidateEnd);
     return newValue;
   }
 }

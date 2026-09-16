@@ -56,7 +56,9 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
             Text(
               'État: ${tagState.state}\n'
                   'Livre id: ${tagState.selectedBookId}\n'
-                  'Chapitre confirmé: ${tagState.chapterNumber}',
+                  'Chapitre confirmé: ${tagState.chapterNumber}\n'
+                  'Verset de début: ${tagState.verseStartNumber}\n'
+                  'Verset de fin: ${tagState.verseEndNumber}',
               style: const TextStyle(fontFamily: 'monospace'),
             ),
             const SizedBox(height: 12),
@@ -71,6 +73,9 @@ class _VerseTagTestScreenState extends ConsumerState<VerseTagTestScreen> {
                       ref.read(verseTagProvider.notifier).confirmChapter(ch, off),
                   onCancel: () => ref.read(verseTagProvider.notifier).cancel(),
                   onRejected: _showRejection,
+                  onVerseStartChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseStart(v),
+                  onVerseEndStarted: (o) => ref.read(verseTagProvider.notifier).confirmVerseEndStart(o),
+                  onVerseEndChanged: (v) => ref.read(verseTagProvider.notifier).updateVerseEnd(v),
                   getState: () => ref.read(verseTagProvider),
                   getRefData: () => refDataAsync.value,
                 ),

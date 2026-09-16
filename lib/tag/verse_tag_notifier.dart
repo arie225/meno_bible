@@ -31,6 +31,18 @@ class VerseTagNotifier extends Notifier<VerseTagState> {
     );
   }
 
+  void updateVerseStart(int? verseNumber) {
+    state = state.copyWith(verseStartNumber: verseNumber);
+  }
+
+  void confirmVerseEndStart(int rangeSegmentOffset) {
+    state = state.copyWith(state: TagState.editingVerseEnd, segmentStartOffset: rangeSegmentOffset);
+  }
+
+  void updateVerseEnd(int? verseNumber) {
+    state = state.copyWith(verseEndNumber: verseNumber);
+  }
+
   void cancel() {
     state = const VerseTagState();
   }

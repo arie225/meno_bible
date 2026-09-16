@@ -6,7 +6,9 @@ class VerseTagState {
   final String bookQuery;
   final int? selectedBookId;
   final int? chapterNumber;
-  final int segmentStartOffset; // position où commence le segment en cours (chapitre, puis verset)
+  final int? verseStartNumber;
+  final int segmentStartOffset;
+  final int? verseEndNumber;
 
   const VerseTagState({
     this.state = TagState.idle,
@@ -14,7 +16,9 @@ class VerseTagState {
     this.bookQuery = '',
     this.selectedBookId,
     this.chapterNumber,
+    this.verseStartNumber,
     this.segmentStartOffset = -1,
+    this.verseEndNumber
   });
 
   VerseTagState copyWith({
@@ -23,7 +27,9 @@ class VerseTagState {
     String? bookQuery,
     int? selectedBookId,
     int? chapterNumber,
+    int? verseStartNumber,
     int? segmentStartOffset,
+    int? verseEndNumber,
   }) {
     return VerseTagState(
       state: state ?? this.state,
@@ -31,7 +37,9 @@ class VerseTagState {
       bookQuery: bookQuery ?? this.bookQuery,
       selectedBookId: selectedBookId ?? this.selectedBookId,
       chapterNumber: chapterNumber ?? this.chapterNumber,
+      verseStartNumber: verseStartNumber ?? this.verseStartNumber,
       segmentStartOffset: segmentStartOffset ?? this.segmentStartOffset,
+      verseEndNumber: verseEndNumber ?? this.verseEndNumber,
     );
   }
 
