@@ -19,7 +19,7 @@ class MenoBibleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Meno Bible',
       theme: AppTheme.light,
-      home: const VerseTagTestScreen(),
+      home: const NotesListScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
