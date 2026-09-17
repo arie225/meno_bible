@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/database_providers.dart';
 import '../theme/app_colors.dart';
 import 'note_edit_screen.dart';
+import '../utils/simple_markdown.dart';
 
 final notesListProvider = FutureProvider.autoDispose<List<Map<String, Object?>>>((ref) async {
   final db = await ref.watch(notesDatabaseProvider.future);
@@ -49,11 +50,16 @@ class NotesListScreen extends ConsumerWidget {
                       : 'Sans titre',
                   style: const TextStyle(color: AppColors.bordeauxProfond, fontWeight: FontWeight.w600),
                 ),
-                subtitle: Text(
-                  note['content'] as String,
+                subtitle: RichText(
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.grisDoux),
+                  text: TextSpan(
+                    children: parseSimpleItalicMarkdown(
+                      note['content'] as String,
+                      const TextStyle(color: AppColors.grisDoux),
+                      const TextStyle(color: AppColors.grisDoux, fontStyle: FontStyle.italic),
+                    ),
+                  ),
                 ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
