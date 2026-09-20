@@ -152,6 +152,8 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
         child: ListTile(
           title: Text(
             (note['title'] as String?)?.isNotEmpty == true ? note['title'] as String : 'Sans titre',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: AppColors.bordeauxProfond, fontWeight: FontWeight.w600),
           ),
           subtitle: Column(

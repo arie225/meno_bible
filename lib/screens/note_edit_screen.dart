@@ -25,9 +25,6 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
   final _contentFieldKey = GlobalKey();
   final _tagLayerLink = LayerLink();
 
-  // Style EXACT du TextField de contenu — doit rester synchronisé avec la
-  // décoration/texte du champ ci-dessous, sinon le calcul de position du
-  // curseur (TextPainter) sera décalé par rapport à l'affichage réel.
   static const _contentTextStyle = TextStyle(fontSize: 16, color: Colors.black87);
 
   bool _loading = true;
@@ -90,9 +87,6 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
     _debounce = Timer(const Duration(milliseconds: 800), _autoSaveWhileTyping);
   }
 
-  /// Distinct de _onChanged : gère l'annulation du tag sur simple
-  /// repositionnement du curseur (texte inchangé), et repositionne la liste
-  /// de suggestions à chaque frappe pendant la recherche d'un livre.
   void _onContentValueChanged() {
     final current = _contentController.value;
     final previous = _lastContentValue;
@@ -113,7 +107,9 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
 
     final tagState = ref.read(verseTagProvider);
     if (tagState.state == TagState.searchingBook) {
-      _updateCaretOverlayPosition();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _updateCaretOverlayPosition();
+      });
     }
   }
 
@@ -177,8 +173,6 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
     }
   }
 
-  // --- Positionnement précis de l'overlay au curseur ---
-
   Offset _computeCaretLocalOffset() {
     final renderBox = _contentFieldKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox == null || !renderBox.hasSize) return Offset.zero;
@@ -206,8 +200,9 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
     const overlayWidth = 260.0;
     final maxDx = fieldWidth - overlayWidth;
     final dx = caretOffset.dx.clamp(0.0, maxDx < 0 ? 0.0 : maxDx);
+    final dy = (caretOffset.dy - scrollOffset + lineHeight + 4).clamp(0.0, double.infinity);
 
-    return Offset(dx, caretOffset.dy - scrollOffset + lineHeight + 4);
+    return Offset(dx, dy);
   }
 
   void _updateCaretOverlayPosition() {
@@ -216,64 +211,67 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
   }
 
   void _showBookOverlay() {
-    _caretOverlayOffset = _computeCaretLocalOffset();
+    _caretOverlayOffset = Offset.zero;
     _tagOverlayEntry = OverlayEntry(
       builder: (context) {
         return CompositedTransformFollower(
-            link: _tagLayerLink,
-            showWhenUnlinked: false,
-            offset: _caretOverlayOffset,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(12),
-                clipBehavior: Clip.antiAlias,
-                color: AppColors.bleuCielDoux,
-                child: Consumer(
-                  builder: (context, ref, _) {
-                    // ... reste identique, inchangé
-                final tagState = ref.watch(verseTagProvider);
-                final refDataAsync = ref.watch(bibleReferenceDataProvider);
-                return ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 220, maxWidth: 260, minWidth: 260),
-                  child: refDataAsync.when(
-                    data: (refData) {
-                      final ids = refData.filterBooks(tagState.bookQuery);
-                      if (ids.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text('Aucun livre trouvé', style: TextStyle(color: AppColors.grisDoux)),
-                        );
-                      }
-                      return ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: ids.length,
-                        itemBuilder: (context, index) {
-                          final id = ids[index];
-                          final name = refData.bookNameById[id]!;
-                          return ListTile(
-                            dense: true,
-                            visualDensity: VisualDensity.compact,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                            title: Text(name, style: const TextStyle(color: AppColors.bordeauxProfond, fontSize: 20)),
-                            onTap: () => _onBookSelected(id, name),
+          link: _tagLayerLink,
+          showWhenUnlinked: false,
+          offset: _caretOverlayOffset,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              color: AppColors.bleuCielDoux,
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final tagState = ref.watch(verseTagProvider);
+                  final refDataAsync = ref.watch(bibleReferenceDataProvider);
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220, maxWidth: 260, minWidth: 260),
+                    child: refDataAsync.when(
+                      data: (refData) {
+                        final ids = refData.filterBooks(tagState.bookQuery);
+                        if (ids.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Text('Aucun livre trouvé', style: TextStyle(color: AppColors.grisDoux)),
                           );
-                        },
-                      );
-                    },
-                    loading: () => const SizedBox.shrink(),
-                    error: (e, _) => const SizedBox.shrink(),
-                  ),
-                );
-              },
+                        }
+                        return ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: ids.length,
+                          itemBuilder: (context, index) {
+                            final id = ids[index];
+                            final name = refData.bookNameById[id]!;
+                            return ListTile(
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                              title: Text(name,
+                                  style: const TextStyle(color: AppColors.bordeauxProfond, fontSize: 15)),
+                              onTap: () => _onBookSelected(id, name),
+                            );
+                          },
+                        );
+                      },
+                      loading: () => const SizedBox.shrink(),
+                      error: (e, _) => const SizedBox.shrink(),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
-        )
         );
       },
     );
     Overlay.of(context).insert(_tagOverlayEntry!);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateCaretOverlayPosition();
+    });
   }
 
   void _removeBookOverlay() {
@@ -292,8 +290,6 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
     _contentScrollController.dispose();
     super.dispose();
   }
-
-  // --- Logique du tag @verset ---
 
   void _onBookSelected(int bookId, String bookName) {
     final tagState = ref.read(verseTagProvider);
@@ -429,9 +425,6 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Gère l'ouverture/fermeture de l'overlay en réaction aux transitions
-    // d'état — pas dans _onContentValueChanged, pour couvrir aussi les
-    // transitions déclenchées sans frappe (ex: sélection d'un livre au tap).
     ref.listen<VerseTagState>(verseTagProvider, (previous, next) {
       final wasSearching = previous?.state == TagState.searchingBook;
       final isSearching = next.state == TagState.searchingBook;
@@ -460,73 +453,106 @@ class _NoteEditScreenState extends ConsumerState<NoteEditScreen> with WidgetsBin
             ),
           ),
         ),
-        body: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _titleController,
-                  style: const TextStyle(
-                    color: AppColors.bordeauxProfond,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                  decoration: const InputDecoration(
-                    hintText: 'Titre',
-                    filled: false,
-                    border: InputBorder.none,
-                  ),
-                ),
-                const Divider(color: AppColors.rosePoudre, height: 24),
-                Expanded(
-                  child: CompositedTransformTarget(
-                    link: _tagLayerLink,
-                    child: TextField(
-                      key: _contentFieldKey,
-                      controller: _contentController,
-                      focusNode: _contentFocusNode,
-                      scrollController: _contentScrollController,
-                      style: _contentTextStyle,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      inputFormatters: [
-                        VerseTagFormatter(
-                          onTagStart: (o) => ref.read(verseTagProvider.notifier).startTag(o),
-                          onQueryChanged: (q) => ref.read(verseTagProvider.notifier).updateQuery(q),
-                          onChapterConfirmed: (ch, off) =>
-                              ref.read(verseTagProvider.notifier).confirmChapter(ch, off),
-                          onVerseStartChanged: (v) =>
-                              ref.read(verseTagProvider.notifier).updateVerseStart(v),
-                          onVerseEndStarted: (o) =>
-                              ref.read(verseTagProvider.notifier).confirmVerseEndStart(o),
-                          onVerseEndChanged: (v) =>
-                              ref.read(verseTagProvider.notifier).updateVerseEnd(v),
-                          onCancel: () => ref.read(verseTagProvider.notifier).cancel(),
-                          onRevertToChapter: () =>
-                              ref.read(verseTagProvider.notifier).revertToEditingChapter(),
-                          onRevertToVerseStart: () =>
-                              ref.read(verseTagProvider.notifier).revertToEditingVerseStart(),
-                          onRejected: _showRejection,
-                          onEnterPressed: (text, cursor) => _handleEnterPressed(text, cursor),
-                          getState: () => ref.read(verseTagProvider),
-                          getRefData: () => ref.read(bibleReferenceDataProvider).value,
-                        ),
-                      ],
-                      decoration: const InputDecoration(
-                        hintText: 'Écris ta note ici... (tape "@" pour insérer un verset)',
-                        filled: false,
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                      ),
+        body: SafeArea(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: _titleController,
+                    maxLines: null,
+                    style: const TextStyle(
+                      color: AppColors.bordeauxProfond,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'Titre',
+                      filled: false,
+                      border: InputBorder.none,
                     ),
                   ),
-                ),
-              ],
+                  const Divider(color: AppColors.rosePoudre, height: 24),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final viewportHeight = constraints.maxHeight;
+                        final lineHeightPainter = TextPainter(
+                          text: const TextSpan(text: 'A', style: _contentTextStyle),
+                          textDirection: TextDirection.ltr,
+                        )..layout();
+                        final extraBottomSpace =
+                        (viewportHeight - lineHeightPainter.preferredLineHeight)
+                            .clamp(0.0, double.infinity);
+
+                        return CompositedTransformTarget(
+                          link: _tagLayerLink,
+                          child: Scrollbar(
+                            controller: _contentScrollController,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: _contentScrollController,
+                              padding: EdgeInsets.only(bottom: extraBottomSpace),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(minHeight: viewportHeight),
+                                child: TextField(
+                                  key: _contentFieldKey,
+                                  controller: _contentController,
+                                  focusNode: _contentFocusNode,
+                                  style: _contentTextStyle,
+                                  maxLines: null,
+                                  textAlignVertical: TextAlignVertical.top,
+                                  inputFormatters: [
+                                    VerseTagFormatter(
+                                      onTagStart: (o) =>
+                                          ref.read(verseTagProvider.notifier).startTag(o),
+                                      onQueryChanged: (q) =>
+                                          ref.read(verseTagProvider.notifier).updateQuery(q),
+                                      onChapterConfirmed: (ch, off) => ref
+                                          .read(verseTagProvider.notifier)
+                                          .confirmChapter(ch, off),
+                                      onVerseStartChanged: (v) =>
+                                          ref.read(verseTagProvider.notifier).updateVerseStart(v),
+                                      onVerseEndStarted: (o) => ref
+                                          .read(verseTagProvider.notifier)
+                                          .confirmVerseEndStart(o),
+                                      onVerseEndChanged: (v) =>
+                                          ref.read(verseTagProvider.notifier).updateVerseEnd(v),
+                                      onCancel: () => ref.read(verseTagProvider.notifier).cancel(),
+                                      onRevertToChapter: () => ref
+                                          .read(verseTagProvider.notifier)
+                                          .revertToEditingChapter(),
+                                      onRevertToVerseStart: () => ref
+                                          .read(verseTagProvider.notifier)
+                                          .revertToEditingVerseStart(),
+                                      onRejected: _showRejection,
+                                      onEnterPressed: (text, cursor) =>
+                                          _handleEnterPressed(text, cursor),
+                                      getState: () => ref.read(verseTagProvider),
+                                      getRefData: () =>
+                                      ref.read(bibleReferenceDataProvider).value,
+                                    ),
+                                  ],
+                                  decoration: const InputDecoration(
+                                    hintText: 'Écris ta note ici... (tape "@" pour insérer un verset)',
+                                    filled: false,
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
